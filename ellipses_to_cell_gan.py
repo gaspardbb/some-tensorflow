@@ -8,6 +8,11 @@ from tensorflow._api.v2.v2 import keras
 
 from cycle_gan import cycle_gan_model, train_step
 
+import os
+
+# os.environ['LD_LIBRARY_PATH'] = '/usr/local/cuda-10.1/lib64/'
+
+
 """
 Here's a try to use Keras fit and compile function with the Cycle GAN. 
 We just saw that we struggled to define a cycle gan with the functional API, as we had to handle multiple outputs.
@@ -24,7 +29,7 @@ CONCLUSION: for models with multiple inputs/outputs which interact together, I t
 OUTPUT_CHANNEL = 1
 CROP_SIZE = (64, 64)
 OUTPUT_SHAPE = CROP_SIZE + (OUTPUT_CHANNEL,)
-BATCH_SIZE = 10
+BATCH_SIZE = 400
 NUM_ELLIPSE = (10, 20)
 LAMBDA = 100
 EPOCHS = 1
@@ -43,7 +48,7 @@ def ellipse_generator(num_ellipse=NUM_ELLIPSE, shape=CROP_SIZE):
     min_ellipse, high_ellipse = num_ellipse
     while True:
         array = np.zeros(shape, dtype=np.dtype('float32'))
-        num_ellipse = np.random.random_integers(min_ellipse, high_ellipse)
+        num_ellipse = np.random.randint(min_ellipse, high_ellipse)
         for _ in range(num_ellipse):
             add_ellipse(array)
         array = np.reshape(array, OUTPUT_SHAPE)
