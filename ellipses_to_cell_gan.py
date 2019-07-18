@@ -115,6 +115,13 @@ metrics = {'total': [],
            'discriminator': [],
            'cycle': []}
 
+# For multiple GPU handling
+# gpus = tf.config.experimental.list_physical_devices('GPU')
+# n_gpus = len(gpus)
+# splits = [STEPS_PER_EPOCH // n_gpus] * n_gpus
+# for i in range(STEPS_PER_EPOCH % n_gpus):
+#     splits[i] += 1
+
 full_time = time()
 for epoch in range(EPOCHS):
     total_loss_metric = tf.keras.metrics.Mean()
@@ -122,6 +129,13 @@ for epoch in range(EPOCHS):
     cycle_loss_metric = tf.keras.metrics.Mean()
 
     time_epoch = time()
+    # if gpus:
+    #     for load, gpu in zip(splits, gpus):
+    #         with tf.device(gpu.name):
+    #             for ellipse, cell in tf.data.Dataset.zip((ellipse_ds, cells_ds)).take(load):
+    #
+    #
+    # else:
     for ellipse, cell in tf.data.Dataset.zip((ellipse_ds, cells_ds)).take(STEPS_PER_EPOCH):
         losses = train_step(cell, ellipse, LAMBDA,
                             f_generator=f_generator, g_generator=g_generator,

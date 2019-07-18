@@ -33,6 +33,8 @@ def energy_derivative(image, phi, lambda_1, lambda_2, epsilon=1e-1):
     mean_inside = tf.reduce_mean(tf.gather(image, tf.where(phi > 0)))
     mean_outside = tf.reduce_mean(tf.gather(image, tf.where(phi <= 0)))
     derivate = - lambda_1 * tf.pow(image - mean_inside, 2) + lambda_2 * tf.pow(image - mean_outside, 2)
+    #                                          dirac(phi(x))
+    #                      ___________________________^______________________________
     derivate = derivate * (epsilon / (np.pi * (tf.pow(epsilon, 2) + tf.pow(phi, 2))))
     return derivate
 

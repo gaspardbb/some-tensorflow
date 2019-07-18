@@ -1,6 +1,5 @@
 import tensorflow as tf
 from tensorflow._api.v2.v2.keras import layers, models
-from tensorflow._api.v2.v2.keras.utils import plot_model
 
 """
 We want to implement the a downsample block. If we do not wish to specify the input shape, we cannot use the 
@@ -117,8 +116,10 @@ class Upsample(layers.Layer):
 
     def call(self, inputs, training=None, **kwargs):
         x = self.transposed_convolution(inputs)
-        if training and self.apply_dropout:
-            x = self.dropout(x)
+        if training:
+            # tf.cond executes *all* branches. `if training and self.apply_dropout` won't work here.
+            if self.apply_dropout:
+                x = self.dropout(x)
         x = self.activation(x)
         return x
 
@@ -228,6 +229,9 @@ def encoder(encoder_filters, n_channels_in, n_channels_out, batch_normalization,
     if type(kernel_size) is int:
         kernel_size = [kernel_size] * len(encoder_filters)
 
+    if type(batch_normalization) is bool:
+        batch_normalization = [batch_normalization] * len(encoder_filters)
+
     assert len(encoder_filters) == len(kernel_size) == len(batch_normalization)
 
     encoder_stack = [Downsample(filters, size, batch_norm)
@@ -244,17 +248,28 @@ def encoder(encoder_filters, n_channels_in, n_channels_out, batch_normalization,
     return models.Model(inputs=inputs, outputs=outputs, name=name, **kwargs)
 
 
-loss_obj = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+def decoder(decoder_filters, n_channels_in, n_channels_out, dropout, kernel_size=3,
+            name=None, **kwargs):
+    if type(kernel_size) is int:
+        kernel_size = [kernel_size] * len(decoder_filters)
 
+    if type(dropout) is bool:
+        dropout = [dropout] * len(decoder_filters)
 
-def discriminator_loss(real, generated):
-    real_loss = loss_obj(tf.ones_like(real), real)
-    fake_loss = loss_obj(tf.zeros_like(generated), generated)
-    return .5 * (real_loss + fake_loss)
+    assert len(decoder_filters) == len(kernel_size) == len(dropout)
 
+    decoder_stack = [Upsample(filters, size, apply_dropout)
+                     for filters, size, apply_dropout in zip(decoder_filters, kernel_size, dropout)]
 
-def cycle_loss(image, cycled_image):
-    return tf.reduce_mean(tf.abs(image - cycled_image))
+    inputs = layers.Input(shape=[None, None, n_channels_in])
+
+    x = inputs
+    for dec in decoder_stack:
+        x = dec(x)
+
+    outputs = layers.Conv2D(n_channels_out, 3, padding='same', activation='tanh')(x)
+
+    return models.Model(inputs=inputs, outputs=outputs, name=name, **kwargs)
 
 
 if __name__ == '__main__':
@@ -264,3 +279,4 @@ if __name__ == '__main__':
     model_api = unet_with_functional_API((16, 32, 64, 128), (64, 32, 16), 3, 5, True, True)
     model = UNet((10, 5), (8,), 5, True, True)
     model_encoder = encoder((16, 32, 64), 3, 1, [True] * 3)
+    model_decoder = decoder((16, 24, 32), 12, 1, False)
