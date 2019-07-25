@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow._api.v2.v2.keras import layers, models
 from encoder_decoder import encoder, decoder
 import numpy as np
+from time import time
 
 
 @tf.function
@@ -21,7 +22,10 @@ def vae_kl_divergence(mean: tf.Tensor, logvar: tf.Tensor):
     The KL divergence between the two values
 
 The constant terms are added, even though they do not change the gradient descent. Full formula is:
-\mathcal{D}[\mathcal{N}(\mu_0,\Sigma_0) \| \mathcal{N}(\mu_1,\Sigma_1)] = \frac{ 1 }{ 2 } \left( \mathrm{tr} \left( \Sigma_1^{-1} \Sigma_0 \right) + \left( \mu_1 - \mu_0\right)^\top \Sigma_1^{-1} ( \mu_1 - \mu_0 ) - k + \log \left( \frac{ \det \Sigma_1 }{ \det \Sigma_0  } \right)  \right)
+\mathcal{D}[\mathcal{N}(\mu_0,\Sigma_0) \| \mathcal{N}(\mu_1,\Sigma_1)] =
+\frac{ 1 }{ 2 } \left( \mathrm{tr} \left( \Sigma_1^{-1} \Sigma_0 \right)
++ \left( \mu_1 - \mu_0\right)^\top \Sigma_1^{-1} ( \mu_1 - \mu_0 ) - k
++ \log \left( \frac{ \det \Sigma_1 }{ \det \Sigma_0  } \right)  \right)
     """
     print("Tracing vae_kl_divergence...")
 
@@ -33,7 +37,7 @@ The constant terms are added, even though they do not change the gradient descen
 
 
 @tf.function
-def reconstruction_loss(inputs, outputs, n_samples, log_sigma, n_dim):
+def reconstruction_loss(inputs, outputs, n_samples, log_sigma):
     """
 Reconstruction loss for a VAE, handling Monte Carlo sampling with more than 1 sample.
 
@@ -47,14 +51,16 @@ Reconstruction loss for a VAE, handling Monte Carlo sampling with more than 1 sa
         The number of samples for the Monte Carlo. Could be guessed from outputs.
     log_sigma : float
         The standard deviation of P(X | z) ~ N( f(z) ; sigma^2 I )
-    n_dim
-        The number of latent dimension
     """
-    tf.assert_equal(inputs.shape[0], outputs.shape[0])
-    tf.assert_equal(inputs.shape[1:], outputs.shape[2:])
-    tf.assert_equal(inputs.shape[1], n_samples)
+    tf.assert_equal(inputs.shape[0], outputs.shape[0], message=(f"Inputs shape: {inputs.shape}, "
+                                                                f"outputs shape: {outputs.shape}"))
+    tf.assert_equal(inputs.shape[1:], outputs.shape[2:], message=(f"Inputs shape: {inputs.shape}, "
+                                                                  f"outputs shape: {outputs.shape}"))
+    tf.assert_equal(outputs.shape[1], n_samples, message=(f"Inputs shape: {inputs.shape}, "
+                                                          f"n_samples: {n_samples}"))
 
-    batch_size, _, n_rows, n_cols, n_channels = outputs.shape[0]
+    batch_size, _, n_rows, n_cols, n_channels = outputs.shape
+    n_dim = n_rows * n_cols * n_channels
 
     inputs = tf.reshape(inputs, (batch_size, 1, n_rows, n_cols, n_channels))
 
@@ -69,8 +75,7 @@ Reconstruction loss for a VAE, handling Monte Carlo sampling with more than 1 sa
 
     constants = - 2 * n_dim * log_sigma - n_dim / 2 * tf.math.log(2 * np.pi)
 
-    return - 1 / (2 * tf.exp(2 * log_sigma)) * monte_carlo + constants
-
+    return 1 / (2 * tf.exp(2 * log_sigma)) * monte_carlo + constants
 
 
 class TestLoss(models.Model):
@@ -110,6 +115,7 @@ class VAE(models.Model):
         self.to_latent = layers.Dense(latent_dim * 2, activation=None, name="encoder_to_latent_space")
 
     def build(self, input_shape):
+        
         n_channels = input_shape[-1]
 
         contracting_power = 2**(len(self.filters_encoder) - 1)
@@ -134,10 +140,10 @@ class VAE(models.Model):
                                n_channels_out=n_channels, dropout=False, name="decoder")
         # Output shape is : [None, None, None, n_channels]
 
+        super(VAE, self).build(input_shape)
+
     @tf.function
     def encode(self, inputs):
-        if not self.built:
-            self.build(inputs.shape)
 
         # Input shape is : [batch_size, None, None, n_channels]
         x = self.encoder_net(inputs)
@@ -175,7 +181,6 @@ class VAE(models.Model):
     @tf.function
     def decode(self, z_sample, apply_sigmoid=False):
         # Input shape is : [batch_size, latent_dim]
-        tf.assert_equal(self.built, True, message="You need to build your net prior to doecoding something!")
         x = self.from_latent(z_sample)
         x = self.reshape_from_latent(x)
         x = self.decoder_net(x)
@@ -201,9 +206,50 @@ class VAE(models.Model):
         return outputs
 
 
-a = tf.constant(1, shape=(5, 64, 64, 3), dtype=tf.dtypes.float32)  # batch_size of 5, 64x64 RGB image
-model = VAE(filters_encoder=(10, 20, 30), filters_decoder=(30, 20, 10), latent_dim=8)
-model(a, n_samples=11)
+def test_time(samples_to_check=[1, 10, 50, 100, 500, 1000]):
+    model = VAE(filters_encoder=(16, 32, 64), filters_decoder=(64, 32, 16), latent_dim=64)
+    model.build((1, 64, 64, 3))
+    times = []
+
+    for n_samples in samples_to_check:
+        t1 = time()
+        for _ in range(10):
+            random_tensor = tf.random.normal((1, 64, 64, 3))
+            model(random_tensor, n_samples=n_samples)
+        times.append(time() - t1)
+
+    return samples_to_check, times
+
+
+@tf.function
+def train_step(inputs, vae: VAE, optimizer: tf.optimizers.Optimizer, n_samples, log_sigma):
+
+    batch_size = inputs.shape[0]
+    n_rows, n_cols, n_channels = inputs.shape[1:]
+
+    with tf.GradientTape() as tape:
+        mean, logvar = vae.encode(inputs)
+        z_samples = vae.reparameterize(mean, logvar, n_samples)
+        outputs = vae.decode(z_samples, apply_sigmoid=True)
+        outputs = tf.reshape(outputs, (batch_size, n_samples, n_rows, n_cols, n_channels))
+
+        kl_divergence = vae_kl_divergence(mean, logvar)
+        recon_loss = reconstruction_loss(inputs, outputs, n_samples, log_sigma=log_sigma)
+
+        total_loss = kl_divergence + recon_loss
+
+    gradients = tape.gradient(total_loss, vae.trainable_variables)
+    optimizer.apply_gradients(zip(gradients, vae.trainable_variables))
+
+    return {"total": total_loss,
+            "kl_divergence": kl_divergence,
+            "recon_loss": recon_loss}
+
+
+if __name__ == '__main__':
+    a = tf.constant(1, shape=(5, 64, 64, 3), dtype=tf.dtypes.float32)  # batch_size of 5, 64x64 RGB image
+    model = VAE(filters_encoder=(10, 20, 30), filters_decoder=(30, 20, 10), latent_dim=8)
+    b = model(a, n_samples=11)
 
 """
 Here's to check that the transformation I do for the MC is correct.

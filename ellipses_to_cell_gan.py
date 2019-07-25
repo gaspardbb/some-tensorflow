@@ -86,6 +86,14 @@ cells_ds = tf.data.Dataset.from_generator(cells_generator,
 
 f_generator, g_generator, x_discriminator, y_discriminator = cycle_gan_model(OUTPUT_SHAPE, OUTPUT_SHAPE)
 
+# Or we can simply load an existing model
+# from tensorflow_examples.models.pix2pix import pix2pix
+# g_generator = pix2pix.unet_generator(OUTPUT_SHAPE[-1], norm_type='instancenorm')
+# f_generator = pix2pix.unet_generator(OUTPUT_SHAPE[-1], norm_type='instancenorm')
+#
+# x_discriminator = pix2pix.discriminator(norm_type='instancenorm', target=False)
+# y_discriminator = pix2pix.discriminator(norm_type='instancenorm', target=False)
+
 g_generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 f_generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
 

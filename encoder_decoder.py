@@ -108,6 +108,7 @@ class Upsample(layers.Layer):
         self.filters = filters
 
     def build(self, input_shape):
+        super(Upsample, self).build(input_shape)
         self.transposed_convolution = layers.Conv2DTranspose(filters=self.filters, kernel_size=self.kernel_size,
                                                              strides=2, padding='same', input_shape=input_shape)
         if self.apply_dropout:
