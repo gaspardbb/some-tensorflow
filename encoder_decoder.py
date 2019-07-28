@@ -52,7 +52,10 @@ class Downsample(layers.Layer):
     followed by a LeakyReLU activation.
     """
 
-    def __init__(self, filters: int, kernel_size: int, batch_normalization: bool = True, name: str = None, **kwargs):
+    def __init__(self, filters: int, kernel_size: int,
+                 batch_normalization: bool = True,
+                 conv_params: dict = None,
+                 name: str = None, **kwargs):
         """
 
         Parameters
@@ -72,10 +75,12 @@ class Downsample(layers.Layer):
         self.apply_batch_normalization = batch_normalization
         self.kernel_size = kernel_size
         self.filters = filters
+        self.conv_params = conv_params
 
     def build(self, input_shape):
         self.strided_convolution = layers.Conv2D(filters=self.filters, kernel_size=self.kernel_size,
-                                                 strides=2, padding='same', input_shape=input_shape)
+                                                 strides=2, padding='same', input_shape=input_shape,
+                                                 **self.conv_params)
         if self.apply_batch_normalization:
             self.batch_normalization = layers.BatchNormalization()
 
@@ -101,16 +106,20 @@ class Upsample(layers.Layer):
     A transposed Conv2D, possibly followed by a dropout, with a LeakyReLU activation.
     """
 
-    def __init__(self, filters: int, kernel_size: int, dropout: bool = True, name: str = None, **kwargs):
+    def __init__(self, filters: int, kernel_size: int, dropout: bool = True,
+                 conv_params=None,
+                 name: str = None, **kwargs):
         super(Upsample, self).__init__(name=name, **kwargs)
         self.apply_dropout = dropout
         self.kernel_size = kernel_size
         self.filters = filters
+        self.conv_params = conv_params
 
     def build(self, input_shape):
         super(Upsample, self).build(input_shape)
         self.transposed_convolution = layers.Conv2DTranspose(filters=self.filters, kernel_size=self.kernel_size,
-                                                             strides=2, padding='same', input_shape=input_shape)
+                                                             strides=2, padding='same', input_shape=input_shape,
+                                                             **self.conv_params)
         if self.apply_dropout:
             self.dropout = layers.Dropout(.5)
         self.activation = layers.LeakyReLU()
@@ -195,15 +204,46 @@ number of channels of the input.
 def unet_with_functional_API(filters_encoder, filters_decoder, n_channels_in, n_channels_out,
                              apply_batch_normalization, apply_dropout,
                              kernel_size_encoder=3, kernel_size_decoder=3,
-                             name=None, **kwargs):
+                             name=None, conv_params={}, **kwargs):
+    """
+A UNet model built with Tensorflow's functional API.
+
+    Parameters
+    ----------
+    filters_encoder
+        tuple of int.
+    filters_decoder
+        tuple of int.
+    n_channels_in
+        int. Number of channels of the input.
+    n_channels_out
+        int. Number of channels of the output.
+    apply_batch_normalization
+        bool. Whether to apply batch normalization for every convolutional layer of the encoder.
+    apply_dropout
+        bool. Whether to apply dropout for every convolutional layer of the decoder.
+    kernel_size_encoder
+        int. Size of each filter of the convolutional layers of the encoder.
+    kernel_size_decoder
+        int. Size of each filter of the convolutional layers of the decoder.
+    name
+        name of the model.
+    conv_params
+        dictionary which will be passed to every convolutional and convolutionalTranspose layers of the model.
+
+    Returns
+    -------
+        A Keras model.
+
+    """
     if type(kernel_size_encoder) is int:
         kernel_size_encoder = [kernel_size_encoder] * len(filters_encoder)
     if type(kernel_size_decoder) is int:
         kernel_size_decoder = [kernel_size_decoder] * len(filters_decoder)
 
-    encoder_stack = [Downsample(n_filters, kernel_size, apply_batch_normalization)
+    encoder_stack = [Downsample(n_filters, kernel_size, apply_batch_normalization, conv_params=conv_params)
                      for n_filters, kernel_size in zip(filters_encoder, kernel_size_encoder)]
-    decoder_stack = [Upsample(n_filters, kernel_size, apply_dropout)
+    decoder_stack = [Upsample(n_filters, kernel_size, apply_dropout, conv_params=conv_params)
                      for n_filters, kernel_size in zip(filters_decoder, kernel_size_decoder)]
 
     skips = []
@@ -220,7 +260,7 @@ def unet_with_functional_API(filters_encoder, filters_decoder, n_channels_in, n_
         x = layers.Concatenate()([x, skip])
 
     outputs = layers.Conv2DTranspose(filters=n_channels_out, kernel_size=3, strides=2,
-                                     padding='same', activation='tanh')(x)
+                                     padding='same', activation='tanh', **conv_params)(x)
 
     return models.Model(inputs=inputs, outputs=outputs, name=name, **kwargs)
 
