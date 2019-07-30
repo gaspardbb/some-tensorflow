@@ -50,14 +50,15 @@ print(f"Image shape is: {IMAGE.shape}")
 IMAGE = tf.convert_to_tensor(IMAGE)
 
 
-FILTERS_ENCODER = (16, 32, 64, 128, 256)
-FILTERS_DECODER = (256, 128, 64, 32, 16)
+FILTERS_ENCODER = (16, 32)  # (16, 32, 64, 128, 256)
+FILTERS_DECODER = (32, 16)  # (256, 128, 64, 32, 16)
 N_CHANNELS_IN = 2
 N_CHANNELS_OUT = 1
-EPOCHS = 200
-PRINT_RATE = 50
-LAMBDA = .5
-LEARNING_RATE = 7e-5
+EPOCHS = 100
+PRINT_RATE = 100
+LAMBDA = .01
+MU = 1000
+LEARNING_RATE = 1e-3
 SAVE = True
 
 
@@ -70,7 +71,7 @@ segmentation_function = unet_with_functional_API(filters_encoder=FILTERS_ENCODER
                                                  # conv_params={'kernel_initializer': 'zeros'},
                                                  name='segmentation_function')
 
-@tf.function
+# @tf.function
 def segmentation_loss(inputs, outputs):
     """
 The idea is to implement a loss which would give minimal value to a perfect segmentation on perfect channels. E.g,
@@ -90,27 +91,43 @@ score would be low, and so would be the membranes score.
     """
     nuclei_score = - tf.reduce_mean(inputs[..., 0] * outputs)
     membranes_score = tf.reduce_mean(inputs[..., 1] * outputs)
-    return nuclei_score, membranes_score
+
+    inside = tf.where(outputs[0, ..., 0] > 0)
+    outside = tf.where(outputs[0, ..., 0] <= 0)
+    if inside.shape[0] == 0:
+        cv_in = tf.zeros(1)
+    else:
+        values_inside = tf.gather_nd(inputs[0, ...], inside)
+        mean_inside = tf.reduce_mean(values_inside, axis=0)
+        cv_in = tf.reduce_mean(tf.pow(values_inside - mean_inside, 2), axis=0)
+    if outside.shape[0] == 0:
+        cv_out = tf.zeros(1)
+    else:
+        values_outside = tf.gather_nd(inputs[0, ...], outside)
+        mean_outside = tf.reduce_mean(values_outside, axis=0)
+        cv_out = tf.reduce_mean(tf.pow(values_outside - mean_outside, 2), axis=0)
+    tf.assert_equal(tf.math.is_nan(cv_in), False)
+    return nuclei_score, membranes_score, tf.reduce_mean(cv_in + cv_out)
 
 
-@tf.function
+# @tf.function
 def train_step(f: models.Model, inputs, optimizer: tf.optimizers.Optimizer):
     with tf.GradientTape() as tape:
         outputs = f(inputs)
-        nuclei_score, membrane_score = segmentation_loss(inputs, outputs)
+        nuclei_score, membrane_score, cv = segmentation_loss(inputs, outputs)
         penalty = LAMBDA * tf.abs(nuclei_score - membrane_score)
-        # pixels_in = tf.reduce_sum(tf.where(outputs>0))
-        # pixels_out = tf.reduce_sum(tf.where(outputs<=0))
-        full_score = nuclei_score + membrane_score + penalty
+        cv = MU * cv
+        full_score = nuclei_score + membrane_score + penalty + cv
     gradients = tape.gradient(full_score, f.trainable_variables)
     optimizer.apply_gradients(zip(gradients, f.trainable_variables))
     return {'nuclei_score': nuclei_score,
             'membrane_score': membrane_score,
             'penalty': penalty,
+            'cv': cv,
             'full_score': full_score}, outputs
 
 
-score_types = ["nuclei_score", "membrane_score", "full_score", "penalty"]
+score_types = ["nuclei_score", "membrane_score", "full_score", "penalty", "cv"]
 optimizer = tf.optimizers.RMSprop(LEARNING_RATE)
 
 metrics = {}
@@ -119,7 +136,7 @@ for score in score_types: metrics[score] = []
 means = {}
 for score in score_types: means[score] = tf.keras.metrics.Mean()
 
-colors = ['r', 'g', 'b', 'y']
+colors = ['r', 'g', 'b', 'c', 'm', 'y']
 score_colors = {}
 for i, score in enumerate(score_types): score_colors[score] = colors[i]
 
@@ -131,6 +148,7 @@ if SAVE:
 to_format = "[{:>3d}/{:<3d}] ({} in {:.1f}s) pen: {penalty:8.2e} " \
             "nuc: {nuclei_score:8.2e} " \
             "mem: {membrane_score:8.2e} " \
+            "cv : {cv:8.2e} " \
             "ful: {full_score:8.2e}"
 
 full_time = time()

@@ -1,6 +1,6 @@
 # Hands on Tensorflow 2.0
 
-This repository simply gathers some pieces of code I did to get used to the new tensorflow 2.0 API.
+This repository gathers some pieces of code I did to get used to the new tensorflow 2.0 API.
 It contains:
 * `encoder_decoder.py`: some functions and classes on encoder and decoder models and layers.
 * `cycle_gan.py`: some utility functions to get a cycle gan running rapidly.
