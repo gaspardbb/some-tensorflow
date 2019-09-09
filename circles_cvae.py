@@ -5,6 +5,7 @@ import tensorflow as tf
 from skimage.draw import circle as draw_circle
 from skimage.util.noise import random_noise
 from time import time
+import os
 
 from cvae import VAE, train_step
 
@@ -40,23 +41,38 @@ class CircleGenerator:
 
 if __name__ == '__main__':
     IMAGE_SHAPE = (64, 64)
-    BATCH_SIZE = 100
-    EPOCHS = 3
-    STEPS_PER_EPOCH = 10
+    BATCH_SIZE = 1
+    EPOCHS = 10
+    STEPS_PER_EPOCH = 100
     N_SAMPLES = 1
+    LATENT_DIM = 2
     LOG_SIGMA = -3.
+    LR = 1e-3
 
     vae = VAE(filters_encoder=(32, 64, 128, 256),
               filters_decoder=(256, 64, 128, 32),
-              latent_dim=100)
+              latent_dim=LATENT_DIM)
     vae.build((BATCH_SIZE, ) + IMAGE_SHAPE + (1,))
-    optimizer = tf.optimizers.RMSprop(learning_rate=1e-4)
+    optimizer = tf.optimizers.RMSprop(learning_rate=LR)
 
     circle_generator = CircleGenerator(IMAGE_SHAPE, 16, 12)
     generator = circle_generator.generator()
     dataset = tf.data.Dataset.from_generator(generator, tf.float32, IMAGE_SHAPE + (1,)).batch(BATCH_SIZE)
 
-    checkpoint_path = "checkpoints/LSIGMA%s_BS%s" % (LOG_SIGMA, BATCH_SIZE)
+    checkpoint_path = "models/LSIGMA%s_BS%s_NS%s" % (LOG_SIGMA, BATCH_SIZE, N_SAMPLES)
+    if not os.path.isdir(checkpoint_path):
+       os.mkdir(checkpoint_path)
+
+    with open('%s/info.txt' % checkpoint_path, 'a') as f:
+        f.write(f'image shape: {IMAGE_SHAPE}\n'
+                f'batch size: {BATCH_SIZE}\n'
+                f'epochs: {EPOCHS}\n'
+                f'steps per epoch: {STEPS_PER_EPOCH}\n'
+                f'n samples: {N_SAMPLES}\n'
+                f'latent dim: {LATENT_DIM}\n'
+                f'log sigma: {LOG_SIGMA}\n'
+                f'learning rate: {LR}')
+
     ckpt = tf.train.Checkpoint(vae=vae,
                                optimizer=optimizer)
 
@@ -91,17 +107,18 @@ if __name__ == '__main__':
               f"div: {metrics['kl_divergence'][-1]:5.2e} "
               f"rec: {metrics['recon_loss'][-1]:5.2e}")
 
-        if (epoch + 1) % 5 == 0:
+        if (epoch + 1) % 20 == 0:
             ckpt_save_path = ckpt_manager.save()
-            print('Saving checkpoint for epoch {} at {}'.format(epoch + 1, ckpt_save_path), end=' ')
+            print('Saving checkpoint for epoch {} at {}'.format(epoch + 1, ckpt_save_path), end='\n')
 
     print(f'Did {EPOCHS} in {time() - full_time: .2f}s.')
 
 
-# arr = circle_generator.get_one_sample()
-# res = vae(arr[np.newaxis, ...])
-#
-# fig, axes = plt.subplots(1, 2)
-# axes[0].imshow(arr[..., 0])
-# axes[1].imshow(res[0, 0, ..., 0])
-# plt.show()
+    import matplotlib.pyplot as plt
+    arr = circle_generator.get_one_sample()
+    res = vae(arr[np.newaxis, ...])
+
+    fig, axes = plt.subplots(1, 2)
+    axes[0].imshow(arr[..., 0])
+    axes[1].imshow(res[0, 0, ..., 0])
+    plt.show()

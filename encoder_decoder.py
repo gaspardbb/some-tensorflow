@@ -54,7 +54,7 @@ class Downsample(layers.Layer):
 
     def __init__(self, filters: int, kernel_size: int,
                  batch_normalization: bool = True,
-                 conv_params: dict = None,
+                 conv_params: dict = {},
                  name: str = None, **kwargs):
         """
 
@@ -107,7 +107,7 @@ class Upsample(layers.Layer):
     """
 
     def __init__(self, filters: int, kernel_size: int, dropout: bool = True,
-                 conv_params=None,
+                 conv_params={},
                  name: str = None, **kwargs):
         super(Upsample, self).__init__(name=name, **kwargs)
         self.apply_dropout = dropout

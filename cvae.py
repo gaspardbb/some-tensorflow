@@ -4,7 +4,6 @@ from encoder_decoder import encoder, decoder
 import numpy as np
 from time import time
 
-
 @tf.function
 def vae_kl_divergence(mean: tf.Tensor, logvar: tf.Tensor):
     """
@@ -76,6 +75,50 @@ Reconstruction loss for a VAE, handling Monte Carlo sampling with more than 1 sa
     constants = - 2 * n_dim * log_sigma - n_dim / 2 * tf.math.log(2 * np.pi)
 
     return 1 / (2 * tf.exp(2 * log_sigma)) * monte_carlo + constants
+
+
+@tf.function
+def dice_score(inputs: tf.Tensor, outputs: tf.Tensor):
+    """
+Dice score between an image and the n_samples output of the net.
+
+    Parameters
+    ----------
+    inputs
+        A boolean tensor of shape: (batch_size, None, None, n_channels)
+    outputs
+        A float tensor of shape: (batch_size, n_samples, None, None, n_channels)
+
+    Returns
+    -------
+        Float being the dice score between the two images.
+
+    """
+    # TODO: check behaviour of this function. Especially, seems that it goes from 0 to 2.
+    assert inputs.dtype == tf.dtypes.bool, "Inputs should have dtype bool. Got %s." % inputs.dtype
+
+    batch_size, _, n_rows, n_cols, n_channels = outputs.shape
+
+    inputs = tf.reshape(inputs, (batch_size, 1, n_rows, n_cols, n_channels))
+
+    # Outputs have values between 0 and 1 (sigmoid is activated)
+    binarized_outputs = outputs > .5
+
+    intersection = tf.equal(inputs, binarized_outputs)
+    intersection = tf.dtypes.cast(intersection, tf.dtypes.int32)
+    # Shape is: (batch_size, n_samples, n_rows, n_cols, n_channels)
+
+    intersection = tf.reduce_sum(intersection, axis=[2, 3, 4])
+    # Shape is: (batch_size, n_samples)
+
+    inputs = tf.dtypes.cast(inputs, tf.dtypes.int32)
+    binarized_outputs = tf.dtypes.cast(binarized_outputs, tf.dtypes.int32)
+    union = tf.reduce_sum(inputs, axis=[2, 3, 4]) + tf.reduce_sum(binarized_outputs, axis=[2, 3, 4])
+    # Shape is: (batch_size, n_samples)
+
+    monte_carlo = 2 * intersection / union
+
+    return tf.reduce_mean(monte_carlo)
 
 
 class TestLoss(models.Model):
