@@ -2,7 +2,7 @@
 
 This repository gathers some pieces of code I did to get used to the new tensorflow 2.0 API.
 It contains:
-* 
+
 * `biorules_segmentation.py`: a try at a segmentation based solely on biological rules.
 * `chan_vese.py`: a tensorflow implementation of the Chan-Vese segmentation algorithm. Runs considerably faster than the sklearn's implementation on big samples.  
 * `circles_cvae.py`: some work on CVAE, using a simple circle generator for practice.
